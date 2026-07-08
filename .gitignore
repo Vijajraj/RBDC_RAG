@@ -1,0 +1,31 @@
+# Python virtual environment and cache files
+backend/.venv/
+backend/__pycache__/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+backend/.env
+
+# Node.js dependencies and build outputs
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
