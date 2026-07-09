@@ -4,14 +4,13 @@ import {
   FileUp,
   FileText,
   Building2,
-  Lock,
   Calendar,
   AlertTriangle,
   FolderClosed,
-  Plus,
   Loader2,
-  Trash2,
   CheckCircle,
+  FileCode,
+  Sparkles,
 } from 'lucide-react'
 
 const sensitivityLabels = ['Public', 'Internal', 'Confidential', 'Restricted']
@@ -23,18 +22,23 @@ const sensitivityColors = [
 ]
 
 export default function DocumentsPage() {
-  const { token, user } = useAuth()
+  const { token } = useAuth()
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [successMsg, setSuccessMsg] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  
+  // Tab selector: 'file' or 'paste'
+  const [mode, setMode] = useState('file')
+  const [dragActive, setDragActive] = useState(false)
 
   const [form, setForm] = useState({
     title: '',
     department: 'all',
     sensitivity_level: 0,
     file: null,
+    pastedText: '',
   })
 
   const API = import.meta.env.VITE_API_URL
@@ -59,23 +63,72 @@ export default function DocumentsPage() {
     fetchDocs()
   }, [token])
 
+  // Drag and drop handlers
+  const handleDrag = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true)
+    } else if (e.type === 'dragleave') {
+      setDragActive(false)
+    }
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0]
+      // Validate file extension
+      const ext = droppedFile.name.split('.').pop().toLowerCase()
+      if (['pdf', 'txt', 'md', 'text'].includes(ext)) {
+        setForm((f) => ({ ...f, file: droppedFile }))
+      } else {
+        setErrorMsg('Invalid file type. Please upload a PDF, TXT, or MD file.')
+      }
+    }
+  }
+
   const handleFileChange = (e) => {
-    setForm((f) => ({ ...f, file: e.target.files[0] }))
+    if (e.target.files && e.target.files[0]) {
+      setForm((f) => ({ ...f, file: e.target.files[0] }))
+    }
   }
 
   const handleUpload = async (e) => {
     e.preventDefault()
-    if (!form.file || !form.title.trim() || uploading) return
-
+    
+    // Check validation based on selected mode
+    if (mode === 'file' && !form.file) {
+      setErrorMsg('Please select or drag a file to upload.')
+      return
+    }
+    if (mode === 'paste' && !form.pastedText.trim()) {
+      setErrorMsg('Please paste some document content first.')
+      return
+    }
+    if (!form.title.trim()) {
+      setErrorMsg('Please specify a document title.')
+      return
+    }
+    
     setUploading(true)
     setErrorMsg('')
     setSuccessMsg('')
 
     const formData = new FormData()
-    formData.append('file', form.file)
     formData.append('title', form.title.trim())
     formData.append('department', form.department)
     formData.append('sensitivity_level', form.sensitivity_level)
+
+    if (mode === 'file') {
+      formData.append('file', form.file)
+    } else {
+      // In paste mode, create a virtual text file blob
+      const textBlob = new Blob([form.pastedText], { type: 'text/plain' })
+      formData.append('file', textBlob, `${form.title.replace(/\s+/g, '_')}.txt`)
+    }
 
     try {
       const res = await fetch(`${API}/documents/upload`, {
@@ -88,9 +141,11 @@ export default function DocumentsPage() {
       if (!res.ok) throw new Error(data.detail || 'Upload failed')
 
       setSuccessMsg('Document successfully ingested and split into vector chunks.')
-      setForm({ title: '', department: 'all', sensitivity_level: 0, file: null })
-      // Clear file input manually
-      document.getElementById('file-input').value = ''
+      setForm({ title: '', department: 'all', sensitivity_level: 0, file: null, pastedText: '' })
+      
+      const fileInput = document.getElementById('file-input')
+      if (fileInput) fileInput.value = ''
+      
       fetchDocs()
     } catch (err) {
       setErrorMsg(err.message || 'Error occurred during document ingestion.')
@@ -119,8 +174,32 @@ export default function DocumentsPage() {
               Ingest New Document
             </h2>
             <p className="text-zinc-500 text-xs mt-1">
-              Supported formats: PDF, TXT, MD. The file will be chunked and embedded instantly.
+              Select or drag files, or copy/paste raw text content directly to chunk and index it.
             </p>
+          </div>
+
+          {/* Mode Selector Tabs */}
+          <div className="flex p-1 bg-zinc-950/40 rounded-xl border border-white/5">
+            <button
+              onClick={() => { setMode('file'); setErrorMsg(''); setSuccessMsg(''); }}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                mode === 'file'
+                  ? 'bg-primary-500/20 text-primary-300 border border-primary-500/20 shadow'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              File Upload
+            </button>
+            <button
+              onClick={() => { setMode('paste'); setErrorMsg(''); setSuccessMsg(''); }}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                mode === 'paste'
+                  ? 'bg-primary-500/20 text-primary-300 border border-primary-500/20 shadow'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Paste Content
+            </button>
           </div>
 
           <form onSubmit={handleUpload} className="space-y-4">
@@ -175,29 +254,80 @@ export default function DocumentsPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1.5 font-medium uppercase tracking-wider">
-                Document File
-              </label>
-              <input
-                id="file-input"
-                type="file"
-                accept=".pdf,.txt,.md,.text"
-                onChange={handleFileChange}
-                className="input-field file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-primary-500/20 file:text-primary-300 hover:file:bg-primary-500/30 file:cursor-pointer"
-                required
-              />
-            </div>
+            {/* Mode-Specific Input Panel */}
+            {mode === 'file' ? (
+              <div className="space-y-2">
+                <label className="block text-xs text-zinc-400 mb-1.5 font-medium uppercase tracking-wider">
+                  Document File
+                </label>
+                <div
+                  onDragEnter={handleDrag}
+                  onDragOver={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center cursor-pointer relative ${
+                    dragActive
+                      ? 'border-primary-400 bg-primary-500/10'
+                      : form.file
+                      ? 'border-emerald-500/40 bg-emerald-500/5'
+                      : 'border-white/10 hover:border-white/20 bg-zinc-950/20'
+                  }`}
+                  onClick={() => document.getElementById('file-input').click()}
+                >
+                  <input
+                    id="file-input"
+                    type="file"
+                    accept=".pdf,.txt,.md,.text"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  {form.file ? (
+                    <>
+                      <FileCode className="w-10 h-10 text-emerald-400 mb-3 animate-pulse-glow" />
+                      <p className="text-zinc-200 text-sm font-semibold truncate max-w-[220px]">
+                        {form.file.name}
+                      </p>
+                      <p className="text-zinc-500 text-xs mt-1">
+                        {(form.file.size / 1024).toFixed(1)} KB • Click or drop new file to replace
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <FileUp className="w-10 h-10 text-zinc-500 mb-3" />
+                      <p className="text-zinc-300 text-sm font-medium">
+                        Drag & Drop document here
+                      </p>
+                      <p className="text-zinc-500 text-xs mt-1">
+                        or click to browse computer (PDF, TXT, MD)
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="block text-xs text-zinc-400 mb-1.5 font-medium uppercase tracking-wider">
+                  Paste Document Content
+                </label>
+                <textarea
+                  placeholder="Paste or type document content directly here..."
+                  value={form.pastedText}
+                  onChange={(e) => setForm((f) => ({ ...f, pastedText: e.target.value }))}
+                  className="input-field min-h-[160px] resize-y text-sm font-sans"
+                  required
+                />
+              </div>
+            )}
 
             {successMsg && (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex gap-2.5 text-emerald-400 text-xs">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex gap-2.5 text-emerald-400 text-xs animate-fade-in">
                 <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <p>{successMsg}</p>
               </div>
             )}
 
             {errorMsg && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex gap-2.5 text-red-400 text-xs">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex gap-2.5 text-red-400 text-xs animate-fade-in">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <p>{errorMsg}</p>
               </div>
@@ -210,7 +340,10 @@ export default function DocumentsPage() {
                   Ingesting Document...
                 </>
               ) : (
-                'Upload & Embed'
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Ingest & Vectorize
+                </>
               )}
             </button>
           </form>
