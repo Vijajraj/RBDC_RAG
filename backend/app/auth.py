@@ -1,9 +1,9 @@
 """
 SecureRAG Authentication Module.
 
-Handles password hashing (bcrypt via passlib), JWT creation /
-verification (python-jose), and the FastAPI dependency that
-extracts the current user from the Authorization header.
+Handles password hashing (bcrypt), JWT creation / verification
+(python-jose), and the FastAPI dependency that extracts the
+current user from the Authorization header.
 """
 
 from __future__ import annotations
@@ -11,14 +11,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from app.config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRATION_HOURS
 from app.database import get_connection
-
-import bcrypt
 
 # ---------------------------------------------------------------------------
 # Password hashing

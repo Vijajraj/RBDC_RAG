@@ -15,7 +15,6 @@ from qdrant_client.http.models import (
     Distance,
     FieldCondition,
     Filter,
-    FilterSelector,
     MatchValue,
     PointStruct,
     Range,
