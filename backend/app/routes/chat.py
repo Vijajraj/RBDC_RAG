@@ -13,14 +13,14 @@ from pydantic import BaseModel
 
 from app.auth import get_current_user
 from app.database import get_connection
-from app.services.ingestion import embed_chunks
 from app.services.llm import generate_answer
-from app.vector_db import get_all_chunks_count_by_query, search_with_filter
+from app.rbac import User as RBACUser, retrieve_authorized_chunks
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class AskRequest(BaseModel):
+    """Pydantic model representing RAG chat request."""
     question: str
 
 
@@ -28,13 +28,10 @@ class AskRequest(BaseModel):
 def ask(body: AskRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     """Answer a question through the secure RAG pipeline.
 
-    1. Embed the question.
-    2. Search Qdrant WITH RBAC filter → filtered results.
-    3. Search Qdrant WITHOUT filter → total results (for denied count).
-    4. Build context from filtered results.
-    5. Call Groq LLM.
-    6. Log to audit_logs.
-    7. Return the answer + retrieval metadata.
+    1. Enforce Server-Side Roles: Build User model from Postgres-derived current_user.
+    2. Retrieve Authorized Chunks: Employs secure pre-filtering at Qdrant layer.
+    3. Generate response using Groq LLM.
+    4. Log audit trace and denial reasons transactionally.
     """
     question = body.question.strip()
     if not question:
@@ -43,74 +40,78 @@ def ask(body: AskRequest, current_user: Dict[str, Any] = Depends(get_current_use
             detail="Question must not be empty.",
         )
 
-    # 1. Embed the question (embed_chunks expects a list)
-    vectors = embed_chunks([question])
-    query_vector = vectors[0]
-
-    # 2. Filtered search (RBAC)
-    filtered_results = search_with_filter(
-        query_vector=query_vector,
+    # 1. Enforce Server-Side Roles: Instantiate RBACUser model strictly from DB record
+    user_profile = RBACUser(
+        id=current_user["id"],
+        role=current_user["role"],
         department=current_user["department"],
-        clearance_level=current_user["clearance_level"],
-        limit=5,
+        clearance_level=current_user["clearance_level"]
     )
 
-    # 3. Unfiltered search (total matches)
-    all_results = get_all_chunks_count_by_query(query_vector=query_vector, limit=20)
-    total_chunks_found = len(all_results)
-    chunks_retrieved = len(filtered_results)
-    chunks_denied = max(0, total_chunks_found - chunks_retrieved)
+    # 2. Retrieve Authorized Chunks (pre-filtering is enforced within Qdrant itself)
+    retrieval = retrieve_authorized_chunks(query=question, user=user_profile, limit=5)
 
-    # 4. Build context
-    context_chunks: List[str] = []
-    retrieval_info: List[Dict[str, Any]] = []
-    for hit in filtered_results:
-        text = hit.payload.get("text", "")
-        context_chunks.append(text)
-        retrieval_info.append(
-            {
-                "text": text,
-                "document_id": hit.payload.get("document_id"),
-                "score": round(hit.score, 4),
-            }
-        )
+    # Build LLM context from allowed chunks
+    context_chunks = [c.text for c in retrieval.chunks]
 
-    # 5. Call LLM
+    # Convert Pydantic Chunk objects to dicts for API response compatibility
+    retrieval_info = [
+        {
+            "text": chunk.text,
+            "document_id": chunk.document_id,
+            "score": chunk.score,
+            "department": chunk.department,
+            "sensitivity_level": chunk.sensitivity_level,
+        }
+        for chunk in retrieval.chunks
+    ]
+
+    # 3. Call LLM
     role_info = {
-        "role": current_user["role"],
-        "department": current_user["department"],
-        "clearance_level": current_user["clearance_level"],
+        "role": user_profile.role,
+        "department": user_profile.department,
+        "clearance_level": user_profile.clearance_level,
     }
     answer = generate_answer(query=question, context_chunks=context_chunks, role_info=role_info)
 
-    # 6. Audit log
+    # 4. Log Audit Trace Transactionally
     response_preview = answer[:200] if answer else ""
+    
     conn = get_connection()
+    conn.autocommit = False  # Enable transaction block
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO audit_logs (user_id, user_email, user_role, query,
-                                        chunks_retrieved, chunks_denied, response_preview)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO audit_logs (
+                    user_id, user_email, user_role, query,
+                    chunks_retrieved, chunks_denied, denial_reason, response_preview
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    current_user["id"],
+                    user_profile.id,
                     current_user["email"],
-                    current_user["role"],
+                    user_profile.role,
                     question,
-                    chunks_retrieved,
-                    chunks_denied,
+                    len(retrieval.chunks),
+                    retrieval.excluded_count,
+                    retrieval.denial_reason,
                     response_preview,
                 ),
             )
+        conn.commit()  # Commit transaction atomically
+    except Exception as exc:
+        conn.rollback()  # Rollback on database failure
+        print(f"[Audit Log] Transaction rolled back due to error: {exc}")
     finally:
         conn.close()
 
-    # 7. Response
+    # 5. Response
     return {
         "answer": answer,
         "chunks_retrieved": retrieval_info,
-        "chunks_denied_count": chunks_denied,
-        "total_chunks_found": total_chunks_found,
+        "chunks_denied_count": retrieval.excluded_count,
+        "total_chunks_found": len(retrieval.chunks) + retrieval.excluded_count,
+        "denial_reason": retrieval.denial_reason,
     }

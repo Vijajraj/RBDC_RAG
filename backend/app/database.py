@@ -64,9 +64,15 @@ def init_db() -> None:
                     query TEXT NOT NULL,
                     chunks_retrieved INTEGER DEFAULT 0,
                     chunks_denied INTEGER DEFAULT 0,
+                    denial_reason TEXT,
                     response_preview TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 );
+            """)
+
+            # Database schema migration: add denial_reason column if it doesn't exist
+            cur.execute("""
+                ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS denial_reason TEXT;
             """)
 
         print("[DB] OK - Tables initialised successfully.")
