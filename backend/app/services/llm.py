@@ -2,14 +2,16 @@
 SecureRAG LLM Service.
 
 Wraps the Groq SDK to call llama-3.3-70b-versatile with
-retrieved context chunks and role-aware prompting.
+retrieved context chunks and role-aware prompting, including failover.
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List
 
 from groq import Groq
+import groq
 
 from app.config import GROQ_API_KEY
 
@@ -47,17 +49,7 @@ def generate_answer(
     context_chunks: List[str],
     role_info: Dict[str, Any],
 ) -> str:
-    """Send the query + context to Groq and return the LLM's answer.
-
-    Parameters
-    ----------
-    query : str
-        The user's natural-language question.
-    context_chunks : list[str]
-        Retrieved text chunks the user is allowed to see.
-    role_info : dict
-        Must contain at least ``role``, ``department``, and ``clearance_level``.
-    """
+    """Send the query + context to Groq and return the LLM's answer with automatic failover."""
     client = _get_groq_client()
 
     # Build the context block
@@ -77,14 +69,40 @@ def generate_answer(
         f"Question: {query}"
     )
 
-    chat_completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0.3,
-        max_tokens=1024,
-    )
-
-    return chat_completion.choices[0].message.content
+    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    
+    for i, model in enumerate(models_to_try):
+        try:
+            chat_completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.3,
+                max_tokens=1024,
+            )
+            return chat_completion.choices[0].message.content
+        except groq.RateLimitError as e:
+            print(f"[LLM Service] Rate limit hit for model {model}. Error: {e}")
+            if i < len(models_to_try) - 1:
+                print(f"[LLM Service] Falling back to alternative model: {models_to_try[i+1]}...")
+                continue
+            else:
+                # If we've run out of models to try, wait 3 seconds and retry the last model once
+                time.sleep(3)
+                try:
+                    chat_completion = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user_message},
+                        ],
+                        temperature=0.3,
+                        max_tokens=1024,
+                    )
+                    return chat_completion.choices[0].message.content
+                except Exception as final_e:
+                    return f"System rate limit reached. Unable to generate response. Error: {final_e}"
+        except Exception as e:
+            return f"Error communicating with LLM service: {e}"

@@ -1,0 +1,35 @@
+{
+  "access_control": {
+    "total_pairs": 112,
+    "tp": 56,
+    "fp": 0,
+    "tn": 56,
+    "fn": 0,
+    "leakage_rate": 0.0,
+    "precision": 100.0,
+    "recall": 100.0,
+    "accuracy": 100.0
+  },
+  "latency": {
+    "runs_per_query": 20,
+    "filtered": {
+      "mean_ms": 454.8210616669773,
+      "p50_ms": 454.1381500021089,
+      "p95_ms": 461.23258999432437,
+      "std_ms": 3.4488086909655804
+    },
+    "baseline": {
+      "mean_ms": 231.69073500030208,
+      "p50_ms": 222.74770000512945,
+      "p95_ms": 231.96557000337634,
+      "std_ms": 63.37460239967736
+    },
+    "overhead_percent": 96.30524356806252
+  },
+  "rag_quality": {
+    "total_questions": 12,
+    "retrieval_precision_at_5": 100.0,
+    "mean_groundedness": 1.0,
+    "hallucination_rate": 0.0
+  }
+}
