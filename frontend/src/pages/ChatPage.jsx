@@ -569,9 +569,9 @@ export default function ChatPage() {
                       </>
                     )}
                   </button>
-                </>
-              )}
-            </form>
+                </form>
+              </>
+            )}
           </div>
         </div>
       )}
