@@ -6,7 +6,7 @@ The security-critical core of the system is **pure pre-filtration at the vector 
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 - **Qdrant Pre-Filtration**: Permissions are enforced directly inside Qdrant's search call using `Filter` and `FieldCondition` models. This prevents data leakage and preserves search precision.
 - **Fail-Closed on Missing Fields**: Any vector chunk missing `department` or `sensitivity_level` metadata is automatically blocked using presence-check `IsEmptyCondition` filters.
@@ -16,7 +16,7 @@ The security-critical core of the system is **pure pre-filtration at the vector 
 
 ---
 
-## 📊 Quantitative Evaluation
+## Quantitative Evaluation
 
 We evaluated the SecureRAG system's security boundaries and query latency overhead using a standalone evaluation harness (**`evaluate.py`**) running against the actual cloud database instances.
 
@@ -60,7 +60,7 @@ We evaluated chunk relevance and generated answer grounding against 12 reference
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 - **Backend**: FastAPI (Python), Uvicorn (ASGI Server), PostgreSQL (neon.tech), Qdrant (Cloud Vector DB), Groq (LLM Inference)
 - **Frontend**: React, Vite, Tailwind CSS v4, Lucide Icons
@@ -68,7 +68,7 @@ We evaluated chunk relevance and generated answer grounding against 12 reference
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 RBDC_RAG/
@@ -89,7 +89,7 @@ RBDC_RAG/
 
 ---
 
-## ⚙️ Installation & Run Guide
+## Installation & Run Guide
 
 ### 1. Backend Setup
 1. Navigate to the backend folder:
